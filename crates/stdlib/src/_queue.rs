@@ -5,7 +5,9 @@ mod _queue {
     use crate::{
         vm::{
             PyObjectRef, PyResult, VirtualMachine,
-            types::{Constructor},
+            builtins::PyException,
+            types::Constructor,
+            class::StaticType,
         }
     };
     use rustpython_vm::types::DefaultConstructor;
@@ -44,7 +46,8 @@ mod _queue {
         pub fn get(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             match (*self.queue.lock()).pop() {
                 Some(value) => Ok(value),
-                None => Err(vm.new_value_error("queue is empty".to_owned()))
+                None => Err(vm.new_exception(
+                    Empty::static_type().to_owned(), vec![]))
             }
         }
 
@@ -66,7 +69,12 @@ mod _queue {
         // pub fn get(&mut self) -> Option<PyObjectRef> {
         //     self.queue.pop()
         // }
-
-        
     }
+
+    #[pyattr]
+    #[pyexception(name = "Empty", base = PyException, impl)]
+    #[derive(Debug)]
+    #[repr(transparent)]
+    pub struct Empty(PyException);
+
 }
