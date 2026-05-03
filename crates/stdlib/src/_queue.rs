@@ -2,6 +2,8 @@ pub(crate) use _queue::module_def;
 
 #[pymodule(name = "_queue")]
 mod _queue {
+    use std::collections::VecDeque;
+
     use crate::{
         vm::{
             PyObjectRef, PyResult, VirtualMachine,
@@ -17,8 +19,7 @@ mod _queue {
     #[pyclass(name = "SimpleQueue")]
     #[derive(Debug, PyPayload, Default)]
     pub struct PySimpleQueue {
-        queue: PyMutex<Vec<PyObjectRef>>,
-        size: PyMutex<usize>,
+        queue: PyMutex<VecDeque<PyObjectRef>>,
     }
 
     impl DefaultConstructor for PySimpleQueue {}
@@ -27,24 +28,22 @@ mod _queue {
     impl PySimpleQueue {
         #[pymethod]
         pub fn qsize(&self) -> usize {
-            *self.size.lock()
+            (*self.queue.lock()).len()
         }
 
         #[pymethod]
         pub fn empty(&self) -> bool {
-            let size = self.size.lock();
-            *size == 0
+            (*self.queue.lock()).len() == 0
         }
 
         #[pymethod]
-        pub fn put(&self, x: PyObjectRef) {
-            *self.size.lock() += 1;
-            (*self.queue.lock()).push(x.clone());
+        pub fn put_nowait(&self, x: PyObjectRef) {
+            (*self.queue.lock()).push_back(x.clone());
         }
 
         #[pymethod]
-        pub fn get(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            match (*self.queue.lock()).pop() {
+        pub fn get_nowait(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            match (*self.queue.lock()).pop_front() {
                 Some(value) => Ok(value),
                 None => Err(vm.new_exception(
                     Empty::static_type().to_owned(), vec![]))
