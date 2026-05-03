@@ -35,15 +35,16 @@ mod _queue {
         }
 
         #[pymethod]
-        pub fn put(&self) { //, _x: PyObjectRef, _block: bool, _timeout: f64) {
+        pub fn put(&self, x: PyObjectRef) {
             *self.size.lock() += 1;
+            (*self.queue.lock()).push(x.clone());
         }
 
         #[pymethod]
-        pub fn get(&self) {
-            let mut size = self.size.lock();
-            if *size > 0 {
-                *size -= 1;
+        pub fn get(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            match (*self.queue.lock()).pop() {
+                Some(value) => Ok(value),
+                None => Err(vm.new_value_error("queue is empty".to_owned()))
             }
         }
 
