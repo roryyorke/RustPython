@@ -3,6 +3,8 @@ pub(crate) use _queue::module_def;
 #[pymodule(name = "_queue")]
 mod _queue {
     use std::collections::VecDeque;
+    use parking_lot::Condvar;
+    use std::time::Duration;
 
     use crate::{
         vm::{
@@ -21,6 +23,7 @@ mod _queue {
     #[derive(Debug, PyPayload, Default)]
     pub struct PySimpleQueue {
         queue: PyMutex<VecDeque<PyObjectRef>>,
+        cvar: Condvar,
     }
 
     impl DefaultConstructor for PySimpleQueue {}
@@ -58,6 +61,7 @@ mod _queue {
         #[pymethod]
         pub fn put_nowait(&self, x: PyObjectRef) {
             (*self.queue.lock()).push_back(x.clone());
+            self.cvar.notify_one();
         }
 
         #[pymethod]
@@ -78,6 +82,7 @@ mod _queue {
             } = args;
 
             (*self.queue.lock()).push_back(item.clone());
+            self.cvar.notify_one();
         }
 
         #[pymethod]
@@ -106,10 +111,33 @@ mod _queue {
                 if timeout < 0.0 {
                     return Err(vm.new_value_error("timeout < 0"));
                 }
-                match (*self.queue.lock()).pop_front() {
-                    Some(value) => Ok(value),
-                    None => Err(vm.new_exception(
-                        Empty::static_type().to_owned(), vec![]))
+
+                let mut q = self.queue.lock();
+
+                if timeout > 0.0 {
+                    let result = self.cvar.wait_while_for(&mut q,
+                                                          |q: &mut VecDeque<PyObjectRef>| { q.len() == 0},
+                                                          Duration::from_millis((timeout*1000.0) as u64));
+
+                    if result.timed_out() {
+                        Err(vm.new_exception(
+                            Empty::static_type().to_owned(), vec![]))
+                    } else {
+                        match (q).pop_front() {
+                            Some(value) => Ok(value),
+                            None => Err(vm.new_exception(
+                                Empty::static_type().to_owned(), vec![]))
+                        }
+                    }
+                } else {
+                    self.cvar.wait_while(&mut q,
+                                         |q: &mut VecDeque<PyObjectRef>| { q.len() == 0});
+
+                    match (q).pop_front() {
+                        Some(value) => Ok(value),
+                        None => Err(vm.new_exception(
+                            Empty::static_type().to_owned(), vec![]))
+                    }
                 }
             }
         }
