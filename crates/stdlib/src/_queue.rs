@@ -3,8 +3,11 @@ pub(crate) use _queue::module_def;
 #[pymodule(name = "_queue")]
 mod _queue {
     use std::collections::VecDeque;
-    use parking_lot::Condvar;
     use std::time::Duration;
+
+    use parking_lot::Condvar;
+
+    const POLL_INTERVAL : Duration = Duration::from_millis(100);
 
     use crate::{
         vm::{
@@ -130,8 +133,15 @@ mod _queue {
                         }
                     }
                 } else {
-                    self.cvar.wait_while(&mut q,
-                                         |q: &mut VecDeque<PyObjectRef>| { q.len() == 0});
+                    loop {
+                        let result = self.cvar.wait_while_for(&mut q,
+                                                              |q: &mut VecDeque<PyObjectRef>| { q.len() == 0},
+                                                              POLL_INTERVAL);
+                        vm.check_signals()?;
+                        if !result.timed_out() {
+                            break
+                        }
+                    }
 
                     match (q).pop_front() {
                         Some(value) => Ok(value),
