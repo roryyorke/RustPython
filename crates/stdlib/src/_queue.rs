@@ -7,19 +7,14 @@ mod _queue {
 
     use parking_lot::Condvar;
 
-    const POLL_INTERVAL : Duration = Duration::from_millis(100);
+    const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
-    use crate::{
-        vm::{
-            PyObjectRef, PyResult, VirtualMachine,
-            builtins::PyException,
-            types::Constructor,
-            class::StaticType,
-            function::OptionalArg,
-        }
+    use crate::vm::{
+        PyObjectRef, PyResult, VirtualMachine, builtins::PyException, class::StaticType,
+        function::OptionalArg, types::Constructor,
     };
-    use rustpython_vm::types::DefaultConstructor;
     use rustpython_common::lock::PyMutex;
+    use rustpython_vm::types::DefaultConstructor;
 
     #[pyattr]
     #[pyclass(name = "SimpleQueue")]
@@ -71,8 +66,7 @@ mod _queue {
         pub fn get_nowait(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             match (*self.queue.lock()).pop_front() {
                 Some(value) => Ok(value),
-                None => Err(vm.new_exception(
-                    Empty::static_type().to_owned(), vec![]))
+                None => Err(vm.new_exception(Empty::static_type().to_owned(), vec![])),
             }
         }
 
@@ -89,7 +83,7 @@ mod _queue {
         }
 
         #[pymethod]
-        pub fn get(&self, args: PyFuncGetArgs, vm: &VirtualMachine) ->  PyResult<PyObjectRef>{
+        pub fn get(&self, args: PyFuncGetArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let PyFuncGetArgs {
                 block: block_obj,
                 timeout: timeout_obj,
@@ -97,14 +91,13 @@ mod _queue {
 
             let blocking: bool = match block_obj {
                 OptionalArg::Present(value) => value.clone().try_to_bool(vm)?,
-                OptionalArg::Missing => true
+                OptionalArg::Missing => true,
             };
 
             if !blocking {
                 match (*self.queue.lock()).pop_front() {
                     Some(value) => Ok(value),
-                    None => Err(vm.new_exception(
-                        Empty::static_type().to_owned(), vec![]))
+                    None => Err(vm.new_exception(Empty::static_type().to_owned(), vec![])),
                 }
             } else {
                 let timeout = match timeout_obj {
@@ -119,45 +112,52 @@ mod _queue {
 
                 if timeout > 0.0 {
                     let start = Instant::now();
-                    let timeout = Duration::from_millis((timeout*1000.0 + 0.5) as u64);
+                    let timeout = Duration::from_millis((timeout * 1000.0 + 0.5) as u64);
 
                     loop {
-                        let result = self.cvar.wait_while_for(&mut q,
-                                                              |q: &mut VecDeque<PyObjectRef>| { q.len() == 0},
-                                                              POLL_INTERVAL);
+                        let result = self.cvar.wait_while_for(
+                            &mut q,
+                            |q: &mut VecDeque<PyObjectRef>| q.len() == 0,
+                            POLL_INTERVAL,
+                        );
                         vm.check_signals()?;
                         if !result.timed_out() {
                             break;
                         }
 
                         if start.elapsed() > timeout {
-                            return Err(vm.new_exception(
-                                Empty::static_type().to_owned(), vec![]));
+                            return Err(vm.new_exception(Empty::static_type().to_owned(), vec![]));
                         }
                     }
 
                     match (q).pop_front() {
                         Some(value) => Ok(value),
-                        None => //should be impossible; panic?
-                            Err(vm.new_exception(
-                            Empty::static_type().to_owned(), vec![]))
+                        None =>
+                        //should be impossible; panic?
+                        {
+                            Err(vm.new_exception(Empty::static_type().to_owned(), vec![]))
+                        }
                     }
                 } else {
                     loop {
-                        let result = self.cvar.wait_while_for(&mut q,
-                                                              |q: &mut VecDeque<PyObjectRef>| { q.len() == 0},
-                                                              POLL_INTERVAL);
+                        let result = self.cvar.wait_while_for(
+                            &mut q,
+                            |q: &mut VecDeque<PyObjectRef>| q.len() == 0,
+                            POLL_INTERVAL,
+                        );
                         vm.check_signals()?;
                         if !result.timed_out() {
-                            break
+                            break;
                         }
                     }
 
                     match (q).pop_front() {
                         Some(value) => Ok(value),
-                        None => //should be impossible; panic?
-                            Err(vm.new_exception(
-                            Empty::static_type().to_owned(), vec![]))
+                        None =>
+                        //should be impossible; panic?
+                        {
+                            Err(vm.new_exception(Empty::static_type().to_owned(), vec![]))
+                        }
                     }
                 }
             }
@@ -169,5 +169,4 @@ mod _queue {
     #[derive(Debug)]
     #[repr(transparent)]
     pub struct Empty(PyException);
-
 }
