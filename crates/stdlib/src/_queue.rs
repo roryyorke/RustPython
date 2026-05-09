@@ -10,6 +10,7 @@ mod _queue {
             builtins::PyException,
             types::Constructor,
             class::StaticType,
+            function::OptionalArg,
         }
     };
     use rustpython_vm::types::DefaultConstructor;
@@ -23,6 +24,24 @@ mod _queue {
     }
 
     impl DefaultConstructor for PySimpleQueue {}
+
+    #[derive(FromArgs)]
+    pub struct PyFuncPutArgs {
+        #[pyarg(any)]
+        item: PyObjectRef,
+        #[pyarg(any, optional)]
+        _block: OptionalArg<PyObjectRef>,
+        #[pyarg(any, optional)]
+        _timeout: OptionalArg<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    pub struct PyFuncGetArgs {
+        #[pyarg(any, optional)]
+        block: OptionalArg<PyObjectRef>,
+        #[pyarg(any, optional)]
+        timeout: OptionalArg<PyObjectRef>,
+    }
 
     #[pyclass(with(Constructor), flags(BASETYPE))]
     impl PySimpleQueue {
@@ -51,23 +70,49 @@ mod _queue {
         }
 
         #[pymethod]
-        pub fn throw_if_even(&self, x: i32, vm: &VirtualMachine) -> PyResult<i32> {
-            if x%2 == 0 {
-                Err(vm.new_value_error("x is even".to_owned()))
-            } else {
-                Ok(99)
-            }
+        pub fn put(&self, args: PyFuncPutArgs) {
+            let PyFuncPutArgs {
+                item,
+                _block: _,
+                _timeout: _,
+            } = args;
+
+            (*self.queue.lock()).push_back(item.clone());
         }
 
-        // #[pymethod]
-        // pub fn put(&mut self, x: PyObjectRef, _block: bool, _timeout: f64) {
-        //     self.queue.push(x);
-        // }
+        #[pymethod]
+        pub fn get(&self, args: PyFuncGetArgs, vm: &VirtualMachine) ->  PyResult<PyObjectRef>{
+            let PyFuncGetArgs {
+                block: block_obj,
+                timeout: timeout_obj,
+            } = args;
 
-        // #[pymethod]
-        // pub fn get(&mut self) -> Option<PyObjectRef> {
-        //     self.queue.pop()
-        // }
+            let blocking: bool = match block_obj {
+                OptionalArg::Present(value) => value.clone().try_to_bool(vm)?,
+                OptionalArg::Missing => true
+            };
+
+            if !blocking {
+                match (*self.queue.lock()).pop_front() {
+                    Some(value) => Ok(value),
+                    None => Err(vm.new_exception(
+                        Empty::static_type().to_owned(), vec![]))
+                }
+            } else {
+                let timeout = match timeout_obj {
+                    OptionalArg::Present(value) => value.clone().try_float(vm)?.to_f64(),
+                    OptionalArg::Missing => 0.0,
+                };
+                if timeout < 0.0 {
+                    return Err(vm.new_value_error("timeout < 0"));
+                }
+                match (*self.queue.lock()).pop_front() {
+                    Some(value) => Ok(value),
+                    None => Err(vm.new_exception(
+                        Empty::static_type().to_owned(), vec![]))
+                }
+            }
+        }
     }
 
     #[pyattr]
