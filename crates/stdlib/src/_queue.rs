@@ -3,7 +3,7 @@ pub(crate) use _queue::module_def;
 #[pymodule(name = "_queue")]
 mod _queue {
     use std::collections::VecDeque;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use parking_lot::Condvar;
 
@@ -118,19 +118,29 @@ mod _queue {
                 let mut q = self.queue.lock();
 
                 if timeout > 0.0 {
-                    let result = self.cvar.wait_while_for(&mut q,
-                                                          |q: &mut VecDeque<PyObjectRef>| { q.len() == 0},
-                                                          Duration::from_millis((timeout*1000.0) as u64));
+                    let start = Instant::now();
+                    let timeout = Duration::from_millis((timeout*1000.0 + 0.5) as u64);
 
-                    if result.timed_out() {
-                        Err(vm.new_exception(
-                            Empty::static_type().to_owned(), vec![]))
-                    } else {
-                        match (q).pop_front() {
-                            Some(value) => Ok(value),
-                            None => Err(vm.new_exception(
-                                Empty::static_type().to_owned(), vec![]))
+                    loop {
+                        let result = self.cvar.wait_while_for(&mut q,
+                                                              |q: &mut VecDeque<PyObjectRef>| { q.len() == 0},
+                                                              POLL_INTERVAL);
+                        vm.check_signals()?;
+                        if !result.timed_out() {
+                            break;
                         }
+
+                        if start.elapsed() > timeout {
+                            return Err(vm.new_exception(
+                                Empty::static_type().to_owned(), vec![]));
+                        }
+                    }
+
+                    match (q).pop_front() {
+                        Some(value) => Ok(value),
+                        None => //should be impossible; panic?
+                            Err(vm.new_exception(
+                            Empty::static_type().to_owned(), vec![]))
                     }
                 } else {
                     loop {
@@ -145,7 +155,8 @@ mod _queue {
 
                     match (q).pop_front() {
                         Some(value) => Ok(value),
-                        None => Err(vm.new_exception(
+                        None => //should be impossible; panic?
+                            Err(vm.new_exception(
                             Empty::static_type().to_owned(), vec![]))
                     }
                 }
