@@ -88,7 +88,7 @@ impl Constructor for PyInterpolation {
             .format_spec
             .unwrap_or_else(|| vm.ctx.empty_str.to_owned());
 
-        Ok(PyInterpolation {
+        Ok(Self {
             value: args.value,
             expression,
             conversion,
@@ -224,6 +224,6 @@ impl Representable for PyInterpolation {
     }
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyInterpolation::extend_class(context, context.types.interpolation_type);
 }

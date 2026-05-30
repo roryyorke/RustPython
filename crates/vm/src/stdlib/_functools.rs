@@ -74,7 +74,7 @@ mod _functools {
     #[pyattr]
     #[pyclass(name = "_PlaceholderType", module = "functools")]
     #[derive(Debug, PyPayload)]
-    pub struct PyPlaceholderType;
+    pub(super) struct PyPlaceholderType;
 
     impl Constructor for PyPlaceholderType {
         type Args = FuncArgs;
@@ -88,12 +88,12 @@ mod _functools {
                 return Ok(instance);
             }
             // Fallback: create a new instance (shouldn't happen for base type after module init)
-            Ok(PyPlaceholderType.into_pyobject(vm))
+            Ok(Self.into_pyobject(vm))
         }
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             // This is never called because we override slot_new
-            Ok(PyPlaceholderType)
+            Ok(Self)
         }
     }
 
@@ -128,7 +128,7 @@ mod _functools {
     #[pyattr]
     #[pyclass(name = "partial", module = "functools")]
     #[derive(Debug, PyPayload)]
-    pub struct PyPartial {
+    pub(super) struct PyPartial {
         inner: PyRwLock<PyPartialInner>,
     }
 
@@ -164,8 +164,7 @@ mod _functools {
         fn __dict__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyDictRef {
             zelf.as_object()
                 .instance_dict()
-                .map(|d| d.get_or_insert(vm))
-                .unwrap_or_else(|| vm.ctx.new_dict())
+                .map_or_else(|| vm.ctx.new_dict(), |d| d.get_or_insert(vm))
         }
 
         #[pygetset(setter)]
@@ -178,7 +177,7 @@ mod _functools {
         }
 
         #[pymethod]
-        fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+        fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyObjectRef {
             let inner = zelf.inner.read();
             let partial_type = zelf.class();
 
@@ -194,14 +193,13 @@ mod _functools {
                 inner.keywords.clone().into(),
                 dict_obj,
             ]);
-            Ok(vm
-                .ctx
+            vm.ctx
                 .new_tuple(vec![
                     partial_type.to_owned().into(),
                     vm.ctx.new_tuple(vec![inner.func.clone()]).into(),
                     state.into(),
                 ])
-                .into())
+                .into()
         }
 
         #[pymethod]
@@ -335,8 +333,7 @@ mod _functools {
                 if is_placeholder(value) {
                     return Err(vm.new_type_error(format!(
                         "Placeholder cannot be passed as a keyword argument to partial(). \
-                         Did you mean partial(..., {}=Placeholder, ...)(value)?",
-                        key
+                         Did you mean partial(..., {key}=Placeholder, ...)(value)?"
                     )));
                 }
             }
@@ -492,8 +489,10 @@ mod _functools {
                 let qualname = zelf.class().__qualname__(vm);
                 let qualname_wtf8 = qualname
                     .downcast_ref::<crate::builtins::PyStr>()
-                    .map(|s| s.as_wtf8().to_owned())
-                    .unwrap_or_else(|| Wtf8Buf::from(zelf.class().name().to_owned()));
+                    .map_or_else(
+                        || Wtf8Buf::from(zelf.class().name().to_owned()),
+                        |s| s.as_wtf8().to_owned(),
+                    );
                 let module = zelf.class().__module__(vm);
 
                 let mut result = Wtf8Buf::new();

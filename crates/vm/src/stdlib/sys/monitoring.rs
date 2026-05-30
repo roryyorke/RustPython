@@ -7,7 +7,7 @@ use core::sync::atomic::Ordering;
 use crossbeam_utils::atomic::AtomicCell;
 use std::collections::{HashMap, HashSet};
 
-pub const TOOL_LIMIT: usize = 6;
+pub(crate) const TOOL_LIMIT: usize = 6;
 const EVENTS_COUNT: usize = 19;
 const LOCAL_EVENTS_COUNT: usize = 11;
 const UNGROUPED_EVENTS_COUNT: usize = 18;
@@ -39,25 +39,25 @@ bitflags::bitflags! {
 }
 
 // Re-export as plain u32 constants for use in frame.rs hot-path checks
-pub const EVENT_PY_START: u32 = MonitoringEvents::PY_START.bits();
-pub const EVENT_PY_RESUME: u32 = MonitoringEvents::PY_RESUME.bits();
-pub const EVENT_PY_RETURN: u32 = MonitoringEvents::PY_RETURN.bits();
-pub const EVENT_PY_YIELD: u32 = MonitoringEvents::PY_YIELD.bits();
-pub const EVENT_CALL: u32 = MonitoringEvents::CALL.bits();
-pub const EVENT_LINE: u32 = MonitoringEvents::LINE.bits();
-pub const EVENT_INSTRUCTION: u32 = MonitoringEvents::INSTRUCTION.bits();
-pub const EVENT_JUMP: u32 = MonitoringEvents::JUMP.bits();
-pub const EVENT_BRANCH_LEFT: u32 = MonitoringEvents::BRANCH_LEFT.bits();
-pub const EVENT_BRANCH_RIGHT: u32 = MonitoringEvents::BRANCH_RIGHT.bits();
-pub const EVENT_RAISE: u32 = MonitoringEvents::RAISE.bits();
-pub const EVENT_EXCEPTION_HANDLED: u32 = MonitoringEvents::EXCEPTION_HANDLED.bits();
-pub const EVENT_PY_UNWIND: u32 = MonitoringEvents::PY_UNWIND.bits();
-pub const EVENT_C_RETURN: u32 = MonitoringEvents::C_RETURN.bits();
+pub(crate) const EVENT_PY_START: u32 = MonitoringEvents::PY_START.bits();
+pub(crate) const EVENT_PY_RESUME: u32 = MonitoringEvents::PY_RESUME.bits();
+pub(crate) const EVENT_PY_RETURN: u32 = MonitoringEvents::PY_RETURN.bits();
+pub(crate) const EVENT_PY_YIELD: u32 = MonitoringEvents::PY_YIELD.bits();
+pub(crate) const EVENT_CALL: u32 = MonitoringEvents::CALL.bits();
+pub(crate) const EVENT_LINE: u32 = MonitoringEvents::LINE.bits();
+pub(crate) const EVENT_INSTRUCTION: u32 = MonitoringEvents::INSTRUCTION.bits();
+pub(crate) const EVENT_JUMP: u32 = MonitoringEvents::JUMP.bits();
+pub(crate) const EVENT_BRANCH_LEFT: u32 = MonitoringEvents::BRANCH_LEFT.bits();
+pub(crate) const EVENT_BRANCH_RIGHT: u32 = MonitoringEvents::BRANCH_RIGHT.bits();
+pub(crate) const EVENT_RAISE: u32 = MonitoringEvents::RAISE.bits();
+pub(crate) const EVENT_EXCEPTION_HANDLED: u32 = MonitoringEvents::EXCEPTION_HANDLED.bits();
+pub(crate) const EVENT_PY_UNWIND: u32 = MonitoringEvents::PY_UNWIND.bits();
+pub(crate) const EVENT_C_RETURN: u32 = MonitoringEvents::C_RETURN.bits();
 const EVENT_C_RAISE: u32 = MonitoringEvents::C_RAISE.bits();
-pub const EVENT_STOP_ITERATION: u32 = MonitoringEvents::STOP_ITERATION.bits();
-pub const EVENT_PY_THROW: u32 = MonitoringEvents::PY_THROW.bits();
+pub(crate) const EVENT_STOP_ITERATION: u32 = MonitoringEvents::STOP_ITERATION.bits();
+pub(crate) const EVENT_PY_THROW: u32 = MonitoringEvents::PY_THROW.bits();
 const EVENT_BRANCH: u32 = MonitoringEvents::BRANCH.bits();
-pub const EVENT_RERAISE: u32 = MonitoringEvents::RERAISE.bits();
+pub(crate) const EVENT_RERAISE: u32 = MonitoringEvents::RERAISE.bits();
 const EVENT_C_RETURN_MASK: u32 = EVENT_C_RETURN | EVENT_C_RAISE;
 
 const EVENT_NAMES: [&str; EVENTS_COUNT] = [
@@ -138,10 +138,10 @@ impl MonitoringState {
 /// Global atomic mask: OR of all tools' events. Checked in the hot path
 /// to skip monitoring overhead when no events are registered.
 /// Lives in PyGlobalState alongside the PyMutex<MonitoringState>.
-pub type MonitoringEventsMask = AtomicCell<u32>;
+pub(crate) type MonitoringEventsMask = AtomicCell<u32>;
 
 /// Get the MISSING sentinel, creating it if necessary.
-pub fn get_missing(vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn get_missing(vm: &VirtualMachine) -> PyObjectRef {
     let mut state = vm.state.monitoring.lock();
     if let Some(ref m) = state.missing {
         m.clone()
@@ -153,7 +153,7 @@ pub fn get_missing(vm: &VirtualMachine) -> PyObjectRef {
 }
 
 /// Get the DISABLE sentinel, creating it if necessary.
-pub fn get_disable(vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn get_disable(vm: &VirtualMachine) -> PyObjectRef {
     let mut state = vm.state.monitoring.lock();
     if let Some(ref d) = state.disable {
         d.clone()
@@ -234,7 +234,7 @@ fn normalize_event_set(event_set: i32, local: bool, vm: &VirtualMachine) -> PyRe
 /// 3. Regular INSTRUMENTED_* — direct 1:1 opcode swap (no side-table needed)
 ///
 /// De-instrumentation peels layers in reverse order.
-pub fn instrument_code(code: &PyCode, events: u32) {
+pub(crate) fn instrument_code(code: &PyCode, events: u32) {
     use rustpython_compiler_core::bytecode::{self, Instruction};
 
     let len = code.code.instructions.len();
@@ -598,6 +598,16 @@ fn register_callback(
     let tool = check_valid_tool(tool_id, vm)?;
     let event_id = parse_single_event(event, vm)?;
 
+    if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
+        audit.call(
+            (
+                vm.ctx.new_str("sys.monitoring.register_callback"),
+                func.clone(),
+            ),
+            vm,
+        )?;
+    }
+
     let mut state = vm.state.monitoring.lock();
     let prev = state
         .callbacks
@@ -813,7 +823,11 @@ fn fire(
 
 // Public dispatch functions (called from frame.rs)
 
-pub fn fire_py_start(vm: &VirtualMachine, code: &PyRef<PyCode>, offset: u32) -> PyResult<()> {
+pub(crate) fn fire_py_start(
+    vm: &VirtualMachine,
+    code: &PyRef<PyCode>,
+    offset: u32,
+) -> PyResult<()> {
     fire(
         vm,
         EVENT_PY_START,
@@ -823,7 +837,11 @@ pub fn fire_py_start(vm: &VirtualMachine, code: &PyRef<PyCode>, offset: u32) -> 
     )
 }
 
-pub fn fire_py_resume(vm: &VirtualMachine, code: &PyRef<PyCode>, offset: u32) -> PyResult<()> {
+pub(crate) fn fire_py_resume(
+    vm: &VirtualMachine,
+    code: &PyRef<PyCode>,
+    offset: u32,
+) -> PyResult<()> {
     fire(
         vm,
         EVENT_PY_RESUME,
@@ -833,7 +851,7 @@ pub fn fire_py_resume(vm: &VirtualMachine, code: &PyRef<PyCode>, offset: u32) ->
     )
 }
 
-pub fn fire_py_return(
+pub(crate) fn fire_py_return(
     vm: &VirtualMachine,
     code: &PyRef<PyCode>,
     offset: u32,
@@ -848,7 +866,7 @@ pub fn fire_py_return(
     )
 }
 
-pub fn fire_py_yield(
+pub(crate) fn fire_py_yield(
     vm: &VirtualMachine,
     code: &PyRef<PyCode>,
     offset: u32,
@@ -863,7 +881,7 @@ pub fn fire_py_yield(
     )
 }
 
-pub fn fire_call(
+pub(crate) fn fire_call(
     vm: &VirtualMachine,
     code: &PyRef<PyCode>,
     offset: u32,
@@ -879,7 +897,7 @@ pub fn fire_call(
     )
 }
 
-pub fn fire_c_return(
+pub(crate) fn fire_c_return(
     vm: &VirtualMachine,
     code: &PyRef<PyCode>,
     offset: u32,
@@ -895,7 +913,7 @@ pub fn fire_c_return(
     )
 }
 
-pub fn fire_c_raise(
+pub(crate) fn fire_c_raise(
     vm: &VirtualMachine,
     code: &PyRef<PyCode>,
     offset: u32,
@@ -911,7 +929,7 @@ pub fn fire_c_raise(
     )
 }
 
-pub fn fire_line(
+pub(crate) fn fire_line(
     vm: &VirtualMachine,
     code: &PyRef<PyCode>,
     offset: u32,
@@ -920,7 +938,11 @@ pub fn fire_line(
     fire(vm, EVENT_LINE, code, offset, &[vm.ctx.new_int(line).into()])
 }
 
-pub fn fire_instruction(vm: &VirtualMachine, code: &PyRef<PyCode>, offset: u32) -> PyResult<()> {
+pub(crate) fn fire_instruction(
+    vm: &VirtualMachine,
+    code: &PyRef<PyCode>,
+    offset: u32,
+) -> PyResult<()> {
     fire(
         vm,
         EVENT_INSTRUCTION,
@@ -930,7 +952,7 @@ pub fn fire_instruction(vm: &VirtualMachine, code: &PyRef<PyCode>, offset: u32) 
     )
 }
 
-pub fn fire_raise(
+pub(crate) fn fire_raise(
     vm: &VirtualMachine,
     code: &PyRef<PyCode>,
     offset: u32,
@@ -947,7 +969,7 @@ pub fn fire_raise(
 
 /// Only fires if no RERAISE has been fired since the last EXCEPTION_HANDLED,
 /// preventing duplicate events from chained cleanup handlers.
-pub fn fire_reraise(
+pub(crate) fn fire_reraise(
     vm: &VirtualMachine,
     code: &PyRef<PyCode>,
     offset: u32,
@@ -970,7 +992,7 @@ pub fn fire_reraise(
     result
 }
 
-pub fn fire_exception_handled(
+pub(crate) fn fire_exception_handled(
     vm: &VirtualMachine,
     code: &PyRef<PyCode>,
     offset: u32,
@@ -986,7 +1008,7 @@ pub fn fire_exception_handled(
     )
 }
 
-pub fn fire_py_unwind(
+pub(crate) fn fire_py_unwind(
     vm: &VirtualMachine,
     code: &PyRef<PyCode>,
     offset: u32,
@@ -1002,7 +1024,7 @@ pub fn fire_py_unwind(
     )
 }
 
-pub fn fire_py_throw(
+pub(crate) fn fire_py_throw(
     vm: &VirtualMachine,
     code: &PyRef<PyCode>,
     offset: u32,
@@ -1017,7 +1039,7 @@ pub fn fire_py_throw(
     )
 }
 
-pub fn fire_stop_iteration(
+pub(crate) fn fire_stop_iteration(
     vm: &VirtualMachine,
     code: &PyRef<PyCode>,
     offset: u32,
@@ -1032,7 +1054,7 @@ pub fn fire_stop_iteration(
     )
 }
 
-pub fn fire_jump(
+pub(crate) fn fire_jump(
     vm: &VirtualMachine,
     code: &PyRef<PyCode>,
     offset: u32,
@@ -1050,7 +1072,7 @@ pub fn fire_jump(
     )
 }
 
-pub fn fire_branch_left(
+pub(crate) fn fire_branch_left(
     vm: &VirtualMachine,
     code: &PyRef<PyCode>,
     offset: u32,
@@ -1068,7 +1090,7 @@ pub fn fire_branch_left(
     )
 }
 
-pub fn fire_branch_right(
+pub(crate) fn fire_branch_right(
     vm: &VirtualMachine,
     code: &PyRef<PyCode>,
     offset: u32,

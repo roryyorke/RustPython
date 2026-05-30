@@ -27,7 +27,7 @@ mod _sre {
     };
 
     #[pyattr]
-    pub use rustpython_sre_engine::{CODESIZE, MAXGROUPS, MAXREPEAT, SRE_MAGIC as MAGIC};
+    pub(super) use rustpython_sre_engine::{CODESIZE, MAXGROUPS, MAXREPEAT, SRE_MAGIC as MAGIC};
 
     #[pyfunction]
     const fn getcodesize() -> usize {
@@ -66,7 +66,7 @@ mod _sre {
     impl SreStr for &[u8] {
         fn slice(&self, start: usize, end: usize, vm: &VirtualMachine) -> PyObjectRef {
             vm.ctx
-                .new_bytes(self.iter().take(end).skip(start).cloned().collect())
+                .new_bytes(self.iter().take(end).skip(start).copied().collect())
                 .into()
         }
     }
@@ -723,8 +723,7 @@ mod _sre {
                             .ok_or_else(|| vm.new_index_error("no such group"))
                             .map(|index| {
                                 self.get_slice(index, str_drive, vm)
-                                    .map(|x| x.to_pyobject(vm))
-                                    .unwrap_or_else(|| vm.ctx.none())
+                                    .map_or_else(|| vm.ctx.none(), |x| x.to_pyobject(vm))
                             })
                     })
                     .try_collect()?;
@@ -761,8 +760,7 @@ mod _sre {
                 let v: Vec<PyObjectRef> = (1..self.regs.len())
                     .map(|i| {
                         self.get_slice(i, str_drive, vm)
-                            .map(|s| s.to_pyobject(vm))
-                            .unwrap_or_else(|| default.clone())
+                            .map_or_else(|| default.clone(), |s| s.to_pyobject(vm))
                     })
                     .collect();
                 Ok(PyTuple::new_ref(v, &vm.ctx))
@@ -784,8 +782,7 @@ mod _sre {
                     let value = self
                         .get_index(index, vm)
                         .and_then(|x| self.get_slice(x, str_drive, vm))
-                        .map(|x| x.to_pyobject(vm))
-                        .unwrap_or_else(|| default.clone());
+                        .map_or_else(|| default.clone(), |x| x.to_pyobject(vm));
                     dict.set_item(&*key, value, vm)?;
                 }
                 Ok(dict)

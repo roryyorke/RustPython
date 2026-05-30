@@ -107,29 +107,31 @@ impl PyObjectRef {
                 )?;
 
                 return Ok(Some((ret.value, true)));
-            } else {
-                return match result.downcast_ref::<PyComplex>() {
-                    Some(complex_obj) => Ok(Some((complex_obj.value, true))),
-                    None => Err(vm.new_type_error(format!(
-                        "__complex__ returned non-complex (type '{}')",
-                        result.class().name()
-                    ))),
-                };
             }
+
+            return match result.downcast_ref::<PyComplex>() {
+                Some(complex_obj) => Ok(Some((complex_obj.value, true))),
+                None => Err(vm.new_type_error(format!(
+                    "__complex__ returned non-complex (type '{}')",
+                    result.class().name()
+                ))),
+            };
         }
         // `complex` does not have a `__complex__` by default, so subclasses might not either,
         // use the actual stored value in this case
         if let Some(complex) = self.downcast_ref::<PyComplex>() {
             return Ok(Some((complex.value, true)));
         }
+
         if let Some(float) = self.try_float_opt(vm) {
             return Ok(Some((Complex64::new(float?.to_f64(), 0.0), false)));
         }
+
         Ok(None)
     }
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyComplex::extend_class(context, context.types.complex_type);
 }
 
@@ -272,10 +274,12 @@ impl PyComplex {
         Self::from(value).into_ref(ctx)
     }
 
+    #[must_use]
     pub const fn to_complex64(self) -> Complex64 {
         self.value
     }
 
+    #[must_use]
     pub const fn to_complex(&self) -> Complex64 {
         self.value
     }
@@ -306,7 +310,7 @@ impl PyComplex {
         RCF: FnOnce(f64, Complex64) -> R,
         R: ToPyResult,
     {
-        let value = match (a.downcast_ref::<PyComplex>(), b.downcast_ref::<PyComplex>()) {
+        let value = match (a.downcast_ref::<Self>(), b.downcast_ref::<Self>()) {
             // complex + complex
             (Some(a_complex), Some(b_complex)) => cc_op(a_complex.value, b_complex.value),
             (Some(a_complex), None) => {

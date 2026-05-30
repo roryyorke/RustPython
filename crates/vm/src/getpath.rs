@@ -15,21 +15,21 @@ use std::path::{Path, PathBuf};
 mod platform {
     use crate::version;
 
-    pub const BUILDDIR_TXT: &str = "pybuilddir.txt";
-    pub const BUILD_LANDMARK: &str = "Modules/Setup.local";
-    pub const VENV_LANDMARK: &str = "pyvenv.cfg";
-    pub const BUILDSTDLIB_LANDMARK: &str = "Lib/os.py";
+    pub(super) const BUILDDIR_TXT: &str = "pybuilddir.txt";
+    pub(super) const BUILD_LANDMARK: &str = "Modules/Setup.local";
+    pub(super) const VENV_LANDMARK: &str = "pyvenv.cfg";
+    pub(super) const BUILDSTDLIB_LANDMARK: &str = "Lib/os.py";
 
-    pub fn stdlib_subdir() -> String {
+    pub(super) fn stdlib_subdir() -> String {
         format!("lib/python{}.{}", version::MAJOR, version::MINOR)
     }
 
-    pub fn stdlib_landmarks() -> [String; 2] {
+    pub(super) fn stdlib_landmarks() -> [String; 2] {
         let subdir = stdlib_subdir();
-        [format!("{}/os.py", subdir), format!("{}/os.pyc", subdir)]
+        [format!("{subdir}/os.py"), format!("{subdir}/os.pyc")]
     }
 
-    pub fn platstdlib_landmark() -> String {
+    pub(super) fn platstdlib_landmark() -> String {
         format!(
             "lib/python{}.{}/lib-dynload",
             version::MAJOR,
@@ -37,7 +37,7 @@ mod platform {
         )
     }
 
-    pub fn zip_landmark() -> String {
+    pub(super) fn zip_landmark() -> String {
         format!("lib/python{}{}.zip", version::MAJOR, version::MINOR)
     }
 }
@@ -46,21 +46,21 @@ mod platform {
 mod platform {
     use crate::version;
 
-    pub const BUILDDIR_TXT: &str = "pybuilddir.txt";
-    pub const BUILD_LANDMARK: &str = "Modules\\Setup.local";
-    pub const VENV_LANDMARK: &str = "pyvenv.cfg";
-    pub const BUILDSTDLIB_LANDMARK: &str = "Lib\\os.py";
-    pub const STDLIB_SUBDIR: &str = "Lib";
+    pub(super) const BUILDDIR_TXT: &str = "pybuilddir.txt";
+    pub(super) const BUILD_LANDMARK: &str = "Modules\\Setup.local";
+    pub(super) const VENV_LANDMARK: &str = "pyvenv.cfg";
+    pub(super) const BUILDSTDLIB_LANDMARK: &str = "Lib\\os.py";
+    pub(super) const STDLIB_SUBDIR: &str = "Lib";
 
-    pub fn stdlib_landmarks() -> [String; 2] {
+    pub(super) fn stdlib_landmarks() -> [String; 2] {
         ["Lib\\os.py".into(), "Lib\\os.pyc".into()]
     }
 
-    pub fn platstdlib_landmark() -> String {
+    pub(super) fn platstdlib_landmark() -> String {
         "DLLs".into()
     }
 
-    pub fn zip_landmark() -> String {
+    pub(super) fn zip_landmark() -> String {
         format!("python{}{}.zip", version::MAJOR, version::MINOR)
     }
 }
@@ -145,10 +145,10 @@ pub fn init_path_config(settings: &Settings) -> Paths {
     // Step 5: Set prefix and base_prefix
     if venv_prefix.is_some() {
         // In venv: prefix = venv directory, base_prefix = original Python's prefix
-        paths.prefix = venv_prefix
-            .as_ref()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|| calculated_prefix.clone());
+        paths.prefix = venv_prefix.as_ref().map_or_else(
+            || calculated_prefix.clone(),
+            |p| p.to_string_lossy().into_owned(),
+        );
         paths.base_prefix = calculated_prefix;
     } else {
         // Not in venv: prefix == base_prefix
@@ -307,11 +307,10 @@ fn calculate_base_executable(executable: Option<&PathBuf>, home_dir: &Option<Pat
 /// Calculate stdlib_dir (sys._stdlib_dir)
 /// Returns None if the stdlib directory doesn't exist
 fn calculate_stdlib_dir(prefix: &str) -> Option<String> {
-    #[cfg(not(windows))]
-    let stdlib_dir = PathBuf::from(prefix).join(platform::stdlib_subdir());
-
-    #[cfg(windows)]
-    let stdlib_dir = PathBuf::from(prefix).join(platform::STDLIB_SUBDIR);
+    let stdlib_dir = Path::new(prefix).join(cfg_select! {
+        windows => platform::STDLIB_SUBDIR,
+        _ => platform::stdlib_subdir(),
+    });
 
     if stdlib_dir.is_dir() {
         Some(stdlib_dir.to_string_lossy().into_owned())
@@ -370,9 +369,11 @@ fn get_executable_path() -> Option<PathBuf> {
 }
 
 /// Parse pyvenv.cfg and extract the 'home' key value
-#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 fn parse_pyvenv_home(pyvenv_cfg: &Path) -> Option<String> {
+    #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
     let content = crate::host_env::fs::read_to_string(pyvenv_cfg).ok()?;
+    #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+    let content = std::fs::read_to_string(pyvenv_cfg).ok()?;
 
     for line in content.lines() {
         if let Some((key, value)) = line.split_once('=')
@@ -385,17 +386,12 @@ fn parse_pyvenv_home(pyvenv_cfg: &Path) -> Option<String> {
     None
 }
 
-#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
-fn parse_pyvenv_home(_pyvenv_cfg: &Path) -> Option<String> {
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_init_path_config() {
+    fn init_path_config_basic() {
         let settings = Settings::default();
         let paths = init_path_config(&settings);
         // Just verify it doesn't panic and returns valid paths
@@ -403,7 +399,7 @@ mod tests {
     }
 
     #[test]
-    fn test_search_up() {
+    fn search_up() {
         // Test with a path that doesn't have any landmarks
         let result = search_up_file(
             crate::host_env::os::temp_dir(),
@@ -413,7 +409,7 @@ mod tests {
     }
 
     #[test]
-    fn test_default_prefix() {
+    fn default_prefix_basic() {
         let prefix = default_prefix();
         assert!(!prefix.is_empty());
     }
