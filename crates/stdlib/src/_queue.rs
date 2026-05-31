@@ -19,7 +19,7 @@ mod _queue {
     #[pyattr]
     #[pyclass(name = "SimpleQueue")]
     #[derive(Debug, PyPayload, Default)]
-    pub struct PySimpleQueue {
+    struct PySimpleQueue {
         queue: PyMutex<VecDeque<PyObjectRef>>,
         cvar: Condvar,
     }
@@ -27,7 +27,7 @@ mod _queue {
     impl DefaultConstructor for PySimpleQueue {}
 
     #[derive(FromArgs)]
-    pub struct PyFuncPutArgs {
+    struct PyFuncPutArgs {
         #[pyarg(any)]
         item: PyObjectRef,
         #[pyarg(any, optional)]
@@ -37,7 +37,7 @@ mod _queue {
     }
 
     #[derive(FromArgs)]
-    pub struct PyFuncGetArgs {
+    struct PyFuncGetArgs {
         #[pyarg(any, optional)]
         block: OptionalArg<PyObjectRef>,
         #[pyarg(any, optional)]
@@ -47,23 +47,23 @@ mod _queue {
     #[pyclass(with(Constructor), flags(BASETYPE))]
     impl PySimpleQueue {
         #[pymethod]
-        pub fn qsize(&self) -> usize {
+        fn qsize(&self) -> usize {
             (*self.queue.lock()).len()
         }
 
         #[pymethod]
-        pub fn empty(&self) -> bool {
+        fn empty(&self) -> bool {
             (*self.queue.lock()).len() == 0
         }
 
         #[pymethod]
-        pub fn put_nowait(&self, x: PyObjectRef) {
+        fn put_nowait(&self, x: PyObjectRef) {
             (*self.queue.lock()).push_back(x.clone());
             self.cvar.notify_one();
         }
 
         #[pymethod]
-        pub fn get_nowait(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn get_nowait(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             match (*self.queue.lock()).pop_front() {
                 Some(value) => Ok(value),
                 None => Err(vm.new_exception(Empty::static_type().to_owned(), vec![])),
@@ -71,7 +71,7 @@ mod _queue {
         }
 
         #[pymethod]
-        pub fn put(&self, args: PyFuncPutArgs) {
+        fn put(&self, args: PyFuncPutArgs) {
             let PyFuncPutArgs {
                 item,
                 _block: _,
@@ -83,7 +83,7 @@ mod _queue {
         }
 
         #[pymethod]
-        pub fn get(&self, args: PyFuncGetArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn get(&self, args: PyFuncGetArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let PyFuncGetArgs {
                 block: block_obj,
                 timeout: timeout_obj,
@@ -168,5 +168,5 @@ mod _queue {
     #[pyexception(name = "Empty", base = PyException, impl)]
     #[derive(Debug)]
     #[repr(transparent)]
-    pub struct Empty(PyException);
+    struct Empty(PyException);
 }
