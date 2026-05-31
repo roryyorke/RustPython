@@ -6,7 +6,7 @@ mod _queue {
     use core::time::Duration;
     use std::time::Instant;
 
-    use parking_lot::Condvar;
+    use parking_lot::{Mutex, Condvar};
 
     const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
@@ -14,14 +14,14 @@ mod _queue {
         PyObjectRef, PyResult, VirtualMachine, builtins::PyException, class::StaticType,
         function::OptionalArg, types::Constructor,
     };
-    use rustpython_common::lock::PyMutex;
+
     use rustpython_vm::types::DefaultConstructor;
 
     #[pyattr]
     #[pyclass(name = "SimpleQueue")]
     #[derive(Debug, PyPayload, Default)]
     struct PySimpleQueue {
-        queue: PyMutex<VecDeque<PyObjectRef>>,
+        queue: Mutex<VecDeque<PyObjectRef>>,
         cvar: Condvar,
     }
 
