@@ -2,8 +2,9 @@ pub(crate) use _queue::module_def;
 
 #[pymodule(name = "_queue")]
 mod _queue {
-    use std::collections::VecDeque;
-    use std::time::{Duration, Instant};
+    use alloc::collections::VecDeque;
+    use core::time::Duration;
+    use std::time::Instant;
 
     use parking_lot::Condvar;
 
@@ -53,7 +54,7 @@ mod _queue {
 
         #[pymethod]
         fn empty(&self) -> bool {
-            (*self.queue.lock()).len() == 0
+            (*self.queue.lock()).is_empty()
         }
 
         #[pymethod]
@@ -117,7 +118,7 @@ mod _queue {
                     loop {
                         let result = self.cvar.wait_while_for(
                             &mut q,
-                            |q: &mut VecDeque<PyObjectRef>| q.len() == 0,
+                            |q: &mut VecDeque<PyObjectRef>| q.is_empty(),
                             POLL_INTERVAL,
                         );
                         vm.check_signals()?;
@@ -142,7 +143,7 @@ mod _queue {
                     loop {
                         let result = self.cvar.wait_while_for(
                             &mut q,
-                            |q: &mut VecDeque<PyObjectRef>| q.len() == 0,
+                            |q: &mut VecDeque<PyObjectRef>| q.is_empty(),
                             POLL_INTERVAL,
                         );
                         vm.check_signals()?;
