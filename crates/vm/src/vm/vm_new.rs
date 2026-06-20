@@ -584,6 +584,8 @@ impl VirtualMachine {
             }
         };
 
+        let mut opt_msg: Option<&str> = None;
+
         let syntax_error_type = match &error {
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
@@ -591,6 +593,13 @@ impl VirtualMachine {
                     ruff_python_parser::ParseErrorType::Lexical(
                         ruff_python_parser::LexicalErrorType::IndentationError,
                     ),
+                ..
+            }) => {
+                self.ctx.exceptions.indentation_error
+            }
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error: ruff_python_parser::ParseErrorType::UnexpectedIndentation,
                 ..
             }) => {
                 // Detect tab/space mixing to raise TabError instead of IndentationError.
@@ -619,16 +628,13 @@ impl VirtualMachine {
                     has_space_indent && has_tab_indent
                 });
                 if is_tab_error {
+                    opt_msg = Some("inconsistent use of tabs and spaces in indentation");
                     self.ctx.exceptions.tab_error
                 } else {
+                    opt_msg = Some("unexpected indent");
                     self.ctx.exceptions.indentation_error
                 }
             }
-            #[cfg(feature = "parser")]
-            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                error: ruff_python_parser::ParseErrorType::UnexpectedIndentation,
-                ..
-            }) => self.ctx.exceptions.indentation_error,
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error:
@@ -752,8 +758,8 @@ impl VirtualMachine {
             }
         };
 
-        if syntax_error_type.is(self.ctx.exceptions.tab_error) {
-            syntax_error_info.with_msg("inconsistent use of tabs and spaces in indentation");
+        if let Some(msg) = opt_msg {
+            syntax_error_info.with_msg(msg);
         }
 
         let SyntaxErrorInfo { msg, narrow_caret } = syntax_error_info;
